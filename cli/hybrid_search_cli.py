@@ -13,6 +13,10 @@ from lib.hybrid_search import (
 )
 from lib.query_enhancer import (
     correct_spelling,
+    expand_query,
+    rerank_batch,
+    rerank_cross_encoder,
+    rerank_individual,
     rewrite_query,
 )
 from lib.semantic_search import load_movies
@@ -48,9 +52,7 @@ def weighted_search_command(
         results,
         start=1,
     ):
-        print(
-            f"{index}. {result['title']}"
-        )
+        print(f"{index}. {result['title']}")
 
         print(
             f"  Hybrid Score: "
@@ -70,12 +72,15 @@ def weighted_search_command(
             f"  {document[:100]}..."
         )
 
+        print()
+
 
 def rrf_search_command(
     query: str,
     k: int = 60,
     limit: int = 5,
     enhance: str | None = None,
+    rerank_method: str | None = None,
 ) -> None:
     search_query = query
 
@@ -99,16 +104,71 @@ def rrf_search_command(
 
         search_query = enhanced_query
 
+    elif enhance == "expand":
+        enhanced_query = expand_query(query)
+
+        print(
+            f"Enhanced query ({enhance}): "
+            f"'{query}' -> '{enhanced_query}'\n"
+        )
+
+        search_query = enhanced_query
+
     documents = load_movies()
 
     hybrid_search = HybridSearch(
         documents
     )
 
+    search_limit = limit
+
+    if rerank_method is not None:
+        search_limit = limit * 5
+
     results = hybrid_search.rrf_search(
         search_query,
         k,
-        limit,
+        search_limit,
+    )
+
+    if rerank_method == "individual":
+        print(
+            f"Re-ranking top {len(results)} results "
+            f"using individual method..."
+        )
+
+        results = rerank_individual(
+            search_query,
+            results,
+        )
+
+    elif rerank_method == "batch":
+        print(
+            f"Re-ranking top {len(results)} results "
+            f"using batch method..."
+        )
+
+        results = rerank_batch(
+            search_query,
+            results,
+        )
+
+    elif rerank_method == "cross_encoder":
+        print(
+            f"Re-ranking top {len(results)} results "
+            f"using cross_encoder method..."
+        )
+
+        results = rerank_cross_encoder(
+            search_query,
+            results,
+        )
+
+    results = results[:limit]
+
+    print(
+        f"Reciprocal Rank Fusion Results "
+        f"for '{search_query}' (k={k}):\n"
     )
 
     for index, result in enumerate(
@@ -134,20 +194,38 @@ def rrf_search_command(
             f"{index}. {result['title']}"
         )
 
+        if rerank_method == "individual":
+            print(
+                f"   Re-rank Score: "
+                f"{result['rerank_score']:.3f}/10"
+            )
+
+        elif rerank_method == "batch":
+            print(
+                f"   Re-rank Rank: "
+                f"{result['rerank_rank']}"
+            )
+
+        elif rerank_method == "cross_encoder":
+            print(
+                f"   Cross Encoder Score: "
+                f"{result['cross_encoder_score']:.3f}"
+            )
+
         print(
-            f"  RRF Score: "
+            f"   RRF Score: "
             f"{result['rrf_score']:.3f}"
         )
 
         print(
-            f"  BM25 Rank: {bm25_display}, "
+            f"   BM25 Rank: {bm25_display}, "
             f"Semantic Rank: {semantic_display}"
         )
 
         document = result["document"]
 
         print(
-            f"  {document[:100]}..."
+            f"   {document[:100]}..."
         )
 
         print()
@@ -236,8 +314,23 @@ def main() -> None:
     rrf_search_parser.add_argument(
         "--enhance",
         type=str,
-        choices=["spell", "rewrite"],
+        choices=[
+            "spell",
+            "rewrite",
+            "expand",
+        ],
         help="Query enhancement method",
+    )
+
+    rrf_search_parser.add_argument(
+        "--rerank-method",
+        type=str,
+        choices=[
+            "individual",
+            "batch",
+            "cross_encoder",
+        ],
+        help="Re-ranking method",
     )
 
     args = parser.parse_args()
@@ -261,6 +354,7 @@ def main() -> None:
                 args.k,
                 args.limit,
                 args.enhance,
+                args.rerank_method,
             )
 
         case _:
