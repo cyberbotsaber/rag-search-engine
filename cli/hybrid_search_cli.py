@@ -11,6 +11,7 @@ from lib.hybrid_search import (
     HybridSearch,
     normalize,
 )
+from lib.query_enhancer import correct_spelling
 from lib.semantic_search import load_movies
 
 
@@ -71,7 +72,20 @@ def rrf_search_command(
     query: str,
     k: int = 60,
     limit: int = 5,
+    enhance: str | None = None,
 ) -> None:
+    search_query = query
+
+    if enhance == "spell":
+        enhanced_query = correct_spelling(query)
+
+        print(
+            f"Enhanced query ({enhance}): "
+            f"'{query}' -> '{enhanced_query}'\n"
+        )
+
+        search_query = enhanced_query
+
     documents = load_movies()
 
     hybrid_search = HybridSearch(
@@ -79,7 +93,7 @@ def rrf_search_command(
     )
 
     results = hybrid_search.rrf_search(
-        query,
+        search_query,
         k,
         limit,
     )
@@ -183,9 +197,7 @@ def main() -> None:
 
     rrf_search_parser = subparsers.add_parser(
         "rrf-search",
-        help=(
-            "Search using Reciprocal Rank Fusion"
-        ),
+        help="Search using Reciprocal Rank Fusion",
     )
 
     rrf_search_parser.add_argument(
@@ -208,6 +220,13 @@ def main() -> None:
         help="Maximum number of results",
     )
 
+    rrf_search_parser.add_argument(
+        "--enhance",
+        type=str,
+        choices=["spell"],
+        help="Query enhancement method",
+    )
+
     args = parser.parse_args()
 
     match args.command:
@@ -228,6 +247,7 @@ def main() -> None:
                 args.query,
                 args.k,
                 args.limit,
+                args.enhance,
             )
 
         case _:
