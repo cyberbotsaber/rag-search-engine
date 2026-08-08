@@ -11,7 +11,10 @@ from lib.hybrid_search import (
     HybridSearch,
     normalize,
 )
-from lib.query_enhancer import correct_spelling
+from lib.query_enhancer import (
+    correct_spelling,
+    rewrite_query,
+)
 from lib.semantic_search import load_movies
 
 
@@ -78,6 +81,16 @@ def rrf_search_command(
 
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
+
+        print(
+            f"Enhanced query ({enhance}): "
+            f"'{query}' -> '{enhanced_query}'\n"
+        )
+
+        search_query = enhanced_query
+
+    elif enhance == "rewrite":
+        enhanced_query = rewrite_query(query)
 
         print(
             f"Enhanced query ({enhance}): "
@@ -223,7 +236,7 @@ def main() -> None:
     rrf_search_parser.add_argument(
         "--enhance",
         type=str,
-        choices=["spell"],
+        choices=["spell", "rewrite"],
         help="Query enhancement method",
     )
 
