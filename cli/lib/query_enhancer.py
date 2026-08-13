@@ -336,3 +336,74 @@ def rerank_cross_encoder(
     )
 
     return reranked_results
+
+
+def evaluate_results(
+    query: str,
+    results: list[dict[str, Any]],
+) -> list[int]:
+    client = get_openrouter_client()
+
+    formatted_results = [
+        f'{result.get("title", "")} - '
+        f'{result.get("document", "")}'
+        for result in results
+    ]
+
+    prompt = f"""Rate how relevant each result is to this query on a 0-3 scale:
+
+Query: "{query}"
+
+Results:
+{chr(10).join(formatted_results)}
+
+Scale:
+- 3: Highly relevant
+- 2: Relevant
+- 1: Marginally relevant
+- 0: Not relevant
+
+Do NOT give any numbers other than 0, 1, 2, or 3.
+
+Return ONLY the scores in the same order you were given the documents. Return a valid JSON list, nothing else. For example:
+
+[2, 0, 3, 2, 0, 1]"""
+
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "system",
+                "content": prompt,
+            }
+        ],
+    )
+
+    content = response.choices[0].message.content
+
+    if not content:
+        raise ValueError("LLM evaluation returned no scores")
+
+    try:
+        scores = json.loads(content.strip())
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "LLM evaluation did not return valid JSON"
+        ) from error
+
+    if (
+        not isinstance(scores, list)
+        or len(scores) != len(results)
+        or any(
+            not isinstance(score, int)
+            or isinstance(score, bool)
+            or score not in range(4)
+            for score in scores
+        )
+    ):
+        raise ValueError(
+            "LLM evaluation must return one score from 0-3 "
+            "for each result"
+        )
+
+    return scores

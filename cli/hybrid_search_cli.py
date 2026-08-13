@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from lib.hybrid_search import (
 )
 from lib.query_enhancer import (
     correct_spelling,
+    evaluate_results,
     expand_query,
     rerank_batch,
     rerank_cross_encoder,
@@ -20,6 +22,32 @@ from lib.query_enhancer import (
     rewrite_query,
 )
 from lib.semantic_search import load_movies
+
+
+logger = logging.getLogger(__name__)
+
+
+def enable_debug_logging() -> None:
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("DEBUG: %(message)s")
+        )
+        logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+
+def log_results(
+    stage: str,
+    results: list[dict],
+) -> None:
+    formatted_results = ", ".join(
+        f"{index}. {result['title']} "
+        f"(RRF: {result['rrf_score']:.4f})"
+        for index, result in enumerate(results, start=1)
+    )
+    logger.debug("%s: %s", stage, formatted_results)
 
 
 def normalize_command(
@@ -81,7 +109,12 @@ def rrf_search_command(
     limit: int = 5,
     enhance: str | None = None,
     rerank_method: str | None = None,
+    debug: bool = False,
+    evaluate: bool = False,
 ) -> None:
+    if debug:
+        logger.debug("Original query: %s", query)
+
     search_query = query
 
     if enhance == "spell":
@@ -114,6 +147,9 @@ def rrf_search_command(
 
         search_query = enhanced_query
 
+    if debug:
+        logger.debug("Query after enhancements: %s", search_query)
+
     documents = load_movies()
 
     hybrid_search = HybridSearch(
@@ -130,6 +166,9 @@ def rrf_search_command(
         k,
         search_limit,
     )
+
+    if debug:
+        log_results("Results after RRF search", results)
 
     if rerank_method == "individual":
         print(
@@ -165,6 +204,9 @@ def rrf_search_command(
         )
 
     results = results[:limit]
+
+    if debug:
+        log_results("Final results after re-ranking", results)
 
     print(
         f"Reciprocal Rank Fusion Results "
@@ -229,6 +271,15 @@ def rrf_search_command(
         )
 
         print()
+
+    if evaluate:
+        scores = evaluate_results(search_query, results)
+
+        for index, (result, score) in enumerate(
+            zip(results, scores),
+            start=1,
+        ):
+            print(f"{index}. {result['title']}: {score}/3")
 
 
 def main() -> None:
@@ -333,7 +384,22 @@ def main() -> None:
         help="Re-ranking method",
     )
 
+    rrf_search_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Log each stage of the RRF search pipeline",
+    )
+
+    rrf_search_parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Evaluate final result relevance with an LLM",
+    )
+
     args = parser.parse_args()
+
+    if getattr(args, "debug", False):
+        enable_debug_logging()
 
     match args.command:
         case "normalize":
@@ -355,6 +421,8 @@ def main() -> None:
                 args.limit,
                 args.enhance,
                 args.rerank_method,
+                args.debug,
+                args.evaluate,
             )
 
         case _:
